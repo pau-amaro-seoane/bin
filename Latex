@@ -1,0 +1,34 @@
+#!/bin/sh
+
+# Runs your favourite latex command, cleans residual tex files,
+# runs bibtex and then again latex (twice). If your output is
+# a ps file, it gets compressed.
+
+latex_cmd="latex"
+
+dvipsoptions=""
+
+while [[ $1 = -* ]]; do
+        case $1 in
+                -pdf ) pdf=1; latex_cmd="pdflatex"
+                       shift 1 ;;
+                -l ) dvipsoptions=$dvipsoptions" -t letter"
+                       shift 1 ;;
+                *  )   print -u2 "!!! option $1 incorrect"
+                       exit 1 ;;
+        esac
+done
+
+Nom=${1%.*}
+[[ -z $Nom ]] && Nom="article"
+
+rm $Nom.log $Nom.dvi $Nom.blg $Nom.bbl $Nom.aux *Notes.bib
+$latex_cmd $Nom.tex
+bibtex -min-crossrefs=100 $Nom
+$latex_cmd $Nom
+$latex_cmd $Nom
+[[ ! -z $pdf ]] || {
+    dvips $dvipsoptions $Nom.dvi -o
+    gzip -f $Nom.ps
+}
+

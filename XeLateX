@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# Cleans residual tex files but for bbl, runs xelatex, bibtex and then
+# again (twice) xelatex on $1
+
+find . \( -name \*.log -o -name \*.dvi -o -name \*.aux -o -name \*.out -o \
+          -name \*.blg -o -name \*.tns -o -name \*.toc -o -name \*.nav -o \
+          -name \*.snm -o -name \*.tmp -o -name \*.tui -o -name \*.tuo -o \
+          -name \*.mpo -o -name \*.idx -o -name \*.pyg -o -name \*.vrb -o \
+          -name \*.llt \) -delete
+
+Nom=${1%.*}
+
+rm $Nom.log $Nom.dvi $Nom.blg $Nom.bbl $Nom.aux *Notes.bib
+xelatex $Nom.tex
+bibtex -min-crossrefs=100 $Nom
+xelatex $Nom
+xelatex $Nom
