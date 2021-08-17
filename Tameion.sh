@@ -72,12 +72,26 @@ passwdfile=$TAMEION/tameion/tameion.txt
 # Decrypt
 # =======
 
-# Decrypt tameion.tar.gz.enc and unfold it
-clear
-echo "Please type in the password to access the folder Tameion/tameion and its files:"
+# Decrypt tameion.tar.gz.enc and unfold it.
+
+# Make sure that if the password is wrong, the script
+# terminates, because otherwise that would lead to
+# the removal of tameion.tar.gz.enc
+
+echo "Please type in the password..."
+echo ""
 openssl enc -d -aes-256-cbc -md sha512 -pbkdf2 -iter 100000 -salt \
-       	    -in  $TAMEION/tameion.tar.gz.enc \
-	        -out $TAMEION/tameion.tar.gz
+        -in  $TAMEION/tameion.tar.gz.enc \
+        -out $TAMEION/tameion.tar.gz 2>/dev/null ;
+ec=$?  # grab the exit code into a variable so that it can
+       # be reused later, without the fear of being overwritten
+case $ec in
+    0) echo "Correct, untarring now..."; sleep 1    ;;
+    1) echo "Wrong password... script finishes here";
+       /bin/rm $TAMEION/tameion.tar.gz;
+       exit 1;;
+esac
+clear
 
 # Don't trust much the -C option of tar, cd instead
 cd      $TAMEION
