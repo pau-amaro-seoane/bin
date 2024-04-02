@@ -9,14 +9,14 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # Make sure there is internet connection
-wget -q --spider http://google.com
-
-if [ $? -eq 0 ]; then
-    echo "You are online."
-else
-    echo "You are offline. The script will terminate now."
-    exit
-fi
+#wget -q --spider http://google.com
+#
+#if [ $? -eq 0 ]; then
+#    echo "You are online."
+#else
+#    echo "You are offline. The script will terminate now."
+#    exit
+#fi
 
 # Update
 if dmesg | grep  -q "current"; then
@@ -28,14 +28,14 @@ else
 fi
 
 # Remove old files
-\rm -f /var/db/colord/mapping.db
-\rm -f /var/db/colord/storage.db
-\rm -rf /etc/cups/*.conf.O /var/log/cups
-\rm -rf /var/cache/cups
-\rm -rf /var/spool/cups
-\rm -rf /etc/dconf/db/*
-\rm -rf /etc/dconf/profile/*
-\rm -f /var/db/upower/history-*
+#\rm -f /var/db/colord/mapping.db
+#\rm -f /var/db/colord/storage.db
+#\rm -rf /etc/cups/*.conf.O /var/log/cups
+#\rm -rf /var/cache/cups
+#\rm -rf /var/spool/cups
+#\rm -rf /etc/dconf/db/*
+#\rm -rf /etc/dconf/profile/*
+#\rm -f /var/db/upower/history-*
 
 # Remove dependencies of programmes you initially installed
 # but later deleted

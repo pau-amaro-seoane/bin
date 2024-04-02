@@ -52,6 +52,9 @@ template()
 \usepackage{wasysym}
 %\usepackage{usenames}
 \usepackage{color}
+\usepackage{moresize}
+\usepackage[scientific-notation=true]{siunitx}
+\newcommand{\hl}[1]{\setlength{\fboxsep}{0.75pt}\colorbox{white}{#1}}
 
 %\usepackage[default]{cantarell} %% Use option "defaultsans" to use cantarell as sans serif only
 %\usepackage[T1]{fontenc}
@@ -152,7 +155,7 @@ if [ $dopdf -eq 1 ]; then
 fi
 
 rm -f texput.* 
-#rm ${FILESTUB}.tex
+rm ${FILESTUB}.tex
 rm ${FILESTUB}.ps
 rm ${FILESTUB}.eps
 

@@ -5,12 +5,16 @@
 # gnuplot exports always to out.tex
 # to then open it with a pdf viewer
 
+# Define gnuplot_cmd
+
+gnuplot_cmd="gnuplot"
+
 # Look for a viewer
 
 EVINCE=`which evince 2> /dev/null`
-ATRIL=`which atril 2> /dev/null`
-MUPDF=`which mupdf 2> /dev/null`
-XPDF=`which xpdf 2> /dev/null`
+ATRIL=`which atril   2> /dev/null`
+MUPDF=`which mupdf   2> /dev/null`
+XPDF=`which xpdf     2> /dev/null`
 
 # Define an openpdf function
 
@@ -33,17 +37,27 @@ openpdf () {
    fi
  }
 
+# Give the option of passing the persist flag to gnuplot
+
+while [[ $1 = -* ]]; do
+        case $1 in
+                -p ) gnuplot_command="gnuplot -p"
+                       shift 1 ;;
+                *  )   print -u2 "!!! option $1 incorrect"
+                       exit 1 ;;
+        esac
+done
 
 # Check if you are a macuser
 
 if [[ "$OSTYPE" == "darwin"* ]]; then 
     echo "Macuser detected (ffs... why??)"
-    gnuplot $1
+    $gnuplot_command $1
     $HOME/bin/GpTex.sh -p out.tex
     open ./out.pdf
     rm out.tex
 else
-    gnuplot $1
+    $gnuplot_cmd $1
     $HOME/bin/GpTex.sh -p out.tex
     openpdf ./out.pdf
     rm out.tex

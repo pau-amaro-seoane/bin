@@ -30,6 +30,18 @@
             # ******************** Mount the external drive ******************** #
 
 
+
+# Check for potential hardware errors and exit if they exist
+
+if `dmesg | tail -20 | grep -Fxq "Hardware Error"`
+then
+    echo "There is a problem with your hardware. Check dmesg."
+    exit 1
+    # code if found
+#else
+#     # code not found
+fi
+
 # Get DUID from the plugged drive
 # Note:
 # We use grep to search for the line containing either "<WD, My Passport"
@@ -42,6 +54,7 @@
 
 
 NAMEDRIVE=`dmesg | grep -E '(<WD, My Passport|<Seagate)' | tail -1 | awk '{print $1}'`
+#NAMEDRIVE=`dmesg | grep -E 'SR CRYPTO' | tail -1 | awk '{print $1}'`
 DUID=`doas disklabel $NAMEDRIVE | grep "duid:" | awk '{print $2}'`
 
 # State name and duid of the drive
@@ -117,6 +130,12 @@ $myrsync /etc/hostname.if   $HOME/fitx_confg/connexions_sense_fil
 $myrsync /etc/rc.conf.local $HOME/fitx_confg/conf_local
 $myrsync /etc/doas.conf     $HOME/fitx_confg/doas_conf
 
+# backup supermongo from the linux partition
+#$HOME/bin/BackupSuperMongo.sh
+
+# backup jupyter from the linux partition
+#$HOME/bin/BackupJupyter.sh
+
 # backup all important folders to /mnt/BackupDrive
 
 $myrsync --log-file=/tmp/$$  \
@@ -132,6 +151,7 @@ $myrsync --log-file=/tmp/$$  \
            $HOME/include     \
            $HOME/lib         \
            $HOME/grafia      \
+           $HOME/.fem        \
        /mnt/BackupDrive
 
 

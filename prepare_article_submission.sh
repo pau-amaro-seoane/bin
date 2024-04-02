@@ -22,12 +22,12 @@ yes|Yes|y|Y|S|s)
     echo ""
     echo "Preparing a targz with the tex and figures..."
     sleep 1
-    cp output.tex /tmp/p.tex
+    mv output.tex p.tex
     tar cvfz  /tmp/$$.tar.gz /tmp/p.tex `cat output.tex | grep "includegraphics" | grep -v "^%" | sed 's/]/\ /g' | awk '{print $2}' | sed 's/{//g' | sed 's/}//g' `
     echo ""
     echo "Tex file without comments and figures compressed in /tmp/$$.tar.gz"
     echo ""
-    rm output.tex
+    rm p.tex
 ;;
 no|n|N)
 echo ""
