@@ -1,8 +1,7 @@
 #!/bin/sh
 
 # Free space, first of all
-sudo journalctl --vacuum-time=3d
-rm -rf ~/.cache/thumbnails/*
+#~/bin/FreeDiskSpace.sh
 
 # Remove old revisions of snaps
 # Close all snaps before running this
@@ -24,6 +23,7 @@ sudo apt -y autoremove
 sudo purge-old-kernels
 
 # snap
+killall snap-store
 sudo snap refresh
 
 # flatpak

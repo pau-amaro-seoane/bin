@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env zsh
 
 # Runs your favourite latex command, cleans residual tex files,
 # runs bibtex and then again latex (twice). If your output is
