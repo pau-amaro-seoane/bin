@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/bin/bash
 # ==============================================================================
 # Script Name: compress_videos.sh
 # Description: This script reduces the file size of video files while maintaining
@@ -6,7 +6,8 @@
 #              supports on-the-fly rotation by multiples of 90 degrees, custom
 #              retention policies for source files, wildcard inputs, and allows 
 #              trimming the video from a specific start to end timestamp.
-#              It concludes by printing a final compression efficiency summary.
+#              It tracks failures globally and alters the final completion banner
+#              if any errors occur during processing.
 #
 # Usage:       ./compress_videos.sh [options] <file1> [file2] [file3] ...
 #              Example: ./compress_videos.sh -k no -r 90 *.mp4
@@ -48,6 +49,9 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 # ==============================================================================
 
+# Capture the script's actual filename immediately to avoid Zsh function-scope overwrites
+SCRIPT_NAME=$(basename -- "$0")
+
 # Initialize a default configuration variable determining if source files are kept
 KEEP_ORIGINAL="yes"
 # Initialize an empty configuration variable to hold the user's rotation angle
@@ -60,6 +64,8 @@ TRIM_END=""
 INPUT_FILES=()
 # Initialize a multiline text variable to accumulate the rows of the final summary report
 SUMMARY_ROWS=""
+# Initialize a global counter to track how many files fail during the batch run
+FAIL_COUNT=0
 
 # Define a function to display a comprehensive help manual to the standard output
 show_help() {
@@ -69,8 +75,8 @@ show_help() {
     echo "Advanced Video Compression, Trimming & Layout Transformation Engine"
     # Print the program header borders for clean terminal styling
     echo "=============================================================================="
-    # Print basic usage instruction formatting syntax
-    echo "Usage: $0 [options] <file1> [file2] ..."
+    # Print basic usage instruction formatting syntax utilizing the isolated script name
+    echo "Usage: ${SCRIPT_NAME} [options] <file1> [file2] ..."
     # Print an empty line to provide spatial breathing room in the terminal interface
     echo ""
     # Print the header label for the arguments group
@@ -83,7 +89,7 @@ show_help() {
     echo "                          (Default policy is set to 'yes')"
     # Explain the purpose, limitations, and options for the rotation configuration flags
     echo "  -r, --rotate <angle>    Rotate video: 90 (CW), 180, 270 (CW), or -90 (CCW)."
-    # Explain the purpose and parameters for the newly added timeline trim flags
+    # Explain the purpose and parameters for the timeline trim flags
     echo "  -t, --trim <mm:ss> <mm:ss> Cut the video from a start time to an end time."
     # Further clarify the behavior of the trim parameters regarding excluded footage
     echo "                          Footage outside this timeframe will be discarded."
@@ -189,7 +195,7 @@ if [ "${#INPUT_FILES[@]}" -eq 0 ]; then
     # Direct an explicit, visible missing argument error out to standard error tracking
     echo "Error: No target video inputs or wildcard mappings were detected." >&2
     # Output quick documentation reminders outlining acceptable call logic structures
-    echo "Usage: $0 [options] <video_file1> [video_file2] ..." >&2
+    echo "Usage: ${SCRIPT_NAME} [options] <video_file1> [video_file2] ..." >&2
     # Halt runtime frameworks immediately returning an operational empty argument code
     exit 1
 # End the verification block checking for missing path parameters
@@ -201,29 +207,29 @@ output_directory="compressed_videos"
 # Execute a safe directory construction pass ensuring path creations skip existing folders
 mkdir -p "${output_directory}"
 
-# Construct the custom FFmpeg video filter flag sequence depending on user rotation commands
-FFMPEG_FILTER=""
+# Initialize an empty Bash array to safely hold structural rotation filter arguments
+FFMPEG_FILTER=()
 # Evaluate if the user selected a 90-degree clockwise structural transformation
 if [ "${ROTATION_ANGLE}" = "90" ]; then
-    # Set the transposition value to 1 which equates to 90 degrees clockwise in FFmpeg
-    FFMPEG_FILTER="-vf transpose=1"
+    # Push the required transposition flags as distinct isolated elements into the array
+    FFMPEG_FILTER=("-vf" "transpose=1")
 # Evaluate if the user selected a 180-degree absolute flip transformation
 elif [ "${ROTATION_ANGLE}" = "180" ]; then
-    # Stack two 90-degree transpositions in sequence to achieve a true 180-degree flip
-    FFMPEG_FILTER="-vf transpose=1,transpose=1"
+    # Push two stacked 90-degree transposition commands as isolated elements into the array
+    FFMPEG_FILTER=("-vf" "transpose=1,transpose=1")
 # Evaluate if the user chose a 270-degree clockwise or 90-degree counter-clockwise flip
 elif [ "${ROTATION_ANGLE}" = "270" ] || [ "${ROTATION_ANGLE}" = "-90" ]; then
-    # Set the transposition value to 2 which tells FFmpeg to turn 90 degrees counter-clockwise
-    FFMPEG_FILTER="-vf transpose=2"
+    # Push the counter-clockwise transposition flags safely into the array
+    FFMPEG_FILTER=("-vf" "transpose=2")
 # Close the rotation conversion evaluation matrix
 fi
 
-# Construct the custom FFmpeg timeline seeking flags depending on user trim commands
-FFMPEG_TRIM=""
+# Initialize an empty Bash array to safely hold structural timeline cutting arguments
+FFMPEG_TRIM=()
 # Evaluate if the user provided valid start and end timestamps to initiate a sequence cut
 if [ -n "${TRIM_START}" ] && [ -n "${TRIM_END}" ]; then
-    # Set the seeking flags mapping the start time (-ss) and concluding time (-to) exactly
-    FFMPEG_TRIM="-ss ${TRIM_START} -to ${TRIM_END}"
+    # Push the precise seeking flags and timestamps as four distinct items into the array
+    FFMPEG_TRIM=("-ss" "${TRIM_START}" "-to" "${TRIM_END}")
 # Close the timeline cutting evaluation matrix
 fi
 
@@ -276,10 +282,10 @@ for input_file in "${INPUT_FILES[@]}"; do
     # Output a final verbose operational notice indicating FFmpeg initialization points
     echo "Invoking processing threads..."
     
-    # Run the full FFmpeg command suite integrating dynamic variables, cutting logic, and layout filters.
-    # Note: Unquoted variables like $FFMPEG_TRIM and $FFMPEG_FILTER expand to separate arguments naturally,
-    # and safely vanish completely without disrupting the command if left empty.
-    ffmpeg -v verbose $FFMPEG_TRIM -i "${input_file}" $FFMPEG_FILTER -vcodec libx265 -crf 26 -preset fast -c:a aac -b:a 128k -y "${output_file}"
+    # Run the full FFmpeg command suite. By referencing the arrays as "${ARRAY[@]}", 
+    # Bash guarantees that word-splitting bugs cannot occur, safely passing arguments 
+    # or omitting them completely if the arrays are empty.
+    ffmpeg -v verbose "${FFMPEG_TRIM[@]}" -i "${input_file}" "${FFMPEG_FILTER[@]}" -vcodec libx265 -crf 26 -preset fast -c:a aac -b:a 128k -y "${output_file}"
     
     # Monitor the numerical output exit state of the immediately preceding transcoder call
     if [ $? -eq 0 ]; then
@@ -314,12 +320,22 @@ for input_file in "${INPUT_FILES[@]}"; do
         fi
     # Route execution behaviors for failure scenarios where transcoding engines broke down
     else
-        # Print a prominent operational error text sequence tracking execution blocks
-        echo "Error: FFmpeg processing encountered a fatal crash while parsing '${input_file}'." >&2
+        # Print a prominent, high-visibility operational error block tracking execution failures
+        echo -e "\n\033[1;31m!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\033[0m" >&2
+        echo -e "\033[1;31m!! CRITICAL WARNING: Compression FAILED for '${input_file}'\033[0m" >&2
+        echo -e "\033[1;31m!! The original file remains untouched. Please check the FFmpeg logs above.\033[0m" >&2
+        echo -e "\033[1;31m!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\033[0m\n" >&2
+        
         # Format a stylized problem indicator row to alert the user inside the final report summary
         row=$(printf "\n%-35s | %-12s | %-12s | %-8s" "$base_name" "$readable_before" "FAILED" "0.0%")
         # Append the explicit failure log layout tracking indicators directly into the report rows
         SUMMARY_ROWS="${SUMMARY_ROWS}${row}"
+        
+        # Clean up the potentially broken/half-finished output file left by the failed FFmpeg process
+        [ -f "${output_file}" ] && rm -f "${output_file}"
+        
+        # Increment the global failure tracking counter by one to alter the final exit message
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     # Finalize the engine execution status validation paths
     fi
     
@@ -348,5 +364,14 @@ fi
 
 # Print structural base grid borders framing the completed statistical visualization dashboard
 echo "==============================================================================="
-# Output the final system completion message aloud to conclude execution tracking routines
-echo "Process fully complete. The outputs are available in: ./${output_directory}/"
+
+# Evaluate if the failure counter remained at zero indicating a perfect execution run
+if [ "${FAIL_COUNT}" -eq 0 ]; then
+    # Output the standard final system completion message noting where the files live
+    echo "Process fully complete. The outputs are available in: ./${output_directory}/"
+# Route execution behavior if one or more files failed during the loop phase
+else
+    # Replace the success banner with a highly visible terminal error message
+    echo -e "\033[1;31mError: Batch process concluded, but ${FAIL_COUNT} file(s) failed. Please review the summary above.\033[0m" >&2
+# Finalize the closing message conditional block
+fi
