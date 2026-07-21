@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # ==============================================================================
 # Copyright 2026 Pau Amaro Seoane
 #
@@ -18,8 +19,15 @@
 # To download high-quality MP3s from YouTube, you can use the following command:
 #
 # yt-dlp -x --audio-format mp3 --audio-quality 0 "YOUTUBEURL"
-# 
 #
+# Note: If you find the error with yt-dlp:
+#
+#    "No supported JavaScript runtime could be found"
+#
+# You might need to do the following:
+# 
+# curl -fsSL https://deno.land/install.sh | sh
+#  
 # Setup Instructions
 # -------------------
 #  Put all your downloaded .mp3 files for one specific album into a folder.
@@ -54,7 +62,7 @@ import glob
 
 # Global toggle to prevent accidental renaming while testing
 # Change this to False ONLY when you are ready to rename the files
-DRY_RUN = True 
+DRY_RUN = False
 
 def get_album_info_from_file():
     """Finds a .txt file formatted as 'Artist__Album_Name.txt' to use as metadata."""
