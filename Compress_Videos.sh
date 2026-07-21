@@ -1,18 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 # ==============================================================================
-# Script Name: compress_videos.sh
+# Script Name: Compress_Videos.sh
 # Description: This script reduces the file size of video files while maintaining
 #              near-original visual quality using the H.265 (HEVC) codec. It 
 #              supports on-the-fly rotation by multiples of 90 degrees, custom
 #              retention policies for source files, wildcard inputs, and allows 
 #              trimming the video from a specific start to end timestamp.
+#              It automatically sanitizes filenames, replacing spaces and 
+#              non-UNIX-safe characters with underscores before processing.
+#              NEW: Includes heavy-duty timeline repair flags to prevent freezing
+#              on files with corrupted metadata or broken timestamps.
 #              It tracks failures globally and alters the final completion banner
 #              if any errors occur during processing.
 #
-# Usage:       ./compress_videos.sh [options] <file1> [file2] [file3] ...
-#              Example: ./compress_videos.sh -k no -r 90 *.mp4
-#              Example: ./compress_videos.sh -t 01:32 03:34 video.avi
-#              Example: ./compress_videos.sh --help
+# Usage:       ./Compress_Videos.sh [options] <file1> [file2] [file3] ...
+#              Example: ./Compress_Videos.sh -k no -r 90 *.mp4
+#              Example: ./Compress_Videos.sh -t 01:32 03:34 video.avi
+#              Example: ./Compress_Videos.sh --help
 #
 # Options:     -h, --help
 #                  Displays this help documentation and exits.
@@ -93,6 +97,10 @@ show_help() {
     echo "  -t, --trim <mm:ss> <mm:ss> Cut the video from a start time to an end time."
     # Further clarify the behavior of the trim parameters regarding excluded footage
     echo "                          Footage outside this timeframe will be discarded."
+    # Note the automatic filename sanitization behavior so the user is aware of renames
+    echo ""
+    echo "Note: This script will automatically rename files to replace spaces and"
+    echo "      non-UNIX-safe characters with underscores before processing."
     # Print the program header borders for clean terminal styling
     echo "=============================================================================="
 }
@@ -252,8 +260,40 @@ for input_file in "${INPUT_FILES[@]}"; do
     # End the regular file classification guard checking framework
     fi
 
+    # Extract the directory path of the current file to ensure renames happen in the correct location
+    dir_name=$(dirname -- "${input_file}")
     # Extract the isolated trailing file name from the relative or absolute system path string
     base_name=$(basename -- "${input_file}")
+    
+    # Sanitize the filename: use sed to replace anything that IS NOT a letter, number, dot, or dash with an underscore
+    sanitized_base_name=$(echo "${base_name}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+    # Chain a second sed command to squeeze multiple consecutive underscores into a single underscore for clean visuals
+    sanitized_base_name=$(echo "${sanitized_base_name}" | sed 's/__*/_/g')
+    
+    # Evaluate if the original filename differs from the sanitized filename (meaning it contained bad characters)
+    if [ "${base_name}" != "${sanitized_base_name}" ]; then
+        # Construct the new, fully sanitized file path string
+        safe_input_file="${dir_name}/${sanitized_base_name}"
+        
+        # Check to ensure we don't accidentally overwrite an existing file that already has the clean name
+        if [ -e "${safe_input_file}" ]; then
+            # Issue a stark warning to the terminal if the sanitized destination is already occupied by another file
+            echo "Warning: Cannot sanitize '${base_name}' because '${sanitized_base_name}' already exists. Skipping." >&2
+            # Continue to the next item in the loop to prevent destructive data loss
+            continue
+        # Close the conflict prevention guard check
+        fi
+        
+        # Verbose terminal output informing the user that their file is being renamed on disk
+        echo "Sanitizing filename: Renaming to '${sanitized_base_name}' to remove unsafe characters..."
+        # Safely execute the system move command (-- ensures filenames starting with hyphens don't break mv flags)
+        mv -- "${input_file}" "${safe_input_file}"
+        
+        # Update our internal loop variables to seamlessly point to the newly renamed file
+        input_file="${safe_input_file}"
+        base_name="${sanitized_base_name}"
+    # Close the filename sanitization sequence block
+    fi
     
     # Strip away the existing file extension layout by dropping the final dot string onward
     name_without_ext="${base_name%.*}"
@@ -282,10 +322,11 @@ for input_file in "${INPUT_FILES[@]}"; do
     # Output a final verbose operational notice indicating FFmpeg initialization points
     echo "Invoking processing threads..."
     
-    # Run the full FFmpeg command suite. By referencing the arrays as "${ARRAY[@]}", 
-    # Bash guarantees that word-splitting bugs cannot occur, safely passing arguments 
-    # or omitting them completely if the arrays are empty.
-    ffmpeg -v verbose "${FFMPEG_TRIM[@]}" -i "${input_file}" "${FFMPEG_FILTER[@]}" -vcodec libx265 -crf 26 -preset fast -c:a aac -b:a 128k -y "${output_file}"
+    # Run the full FFmpeg command suite with bulletproof timestamp repair flags:
+    # -fflags +genpts             : Rebuilds broken timestamps in corrupted files so the script doesn't freeze.
+    # -max_muxing_queue_size 9999 : Expands processing memory to handle massive audio/video sync drifts safely.
+    # -async 1                    : Stretches/squeezes audio to perfectly match the newly repaired video timeline.
+    ffmpeg -v verbose -fflags +genpts "${FFMPEG_TRIM[@]}" -i "${input_file}" "${FFMPEG_FILTER[@]}" -max_muxing_queue_size 9999 -vcodec libx265 -crf 26 -preset fast -c:a aac -b:a 128k -async 1 -y "${output_file}"
     
     # Monitor the numerical output exit state of the immediately preceding transcoder call
     if [ $? -eq 0 ]; then
