@@ -27,249 +27,442 @@
 # You might need to do the following:
 # 
 # curl -fsSL https://deno.land/install.sh | sh
-#  
-# Setup Instructions
-# -------------------
-#  Put all your downloaded .mp3 files for one specific album into a folder.
 #
-#  Inside that folder, create an empty text file. 
+# ==============================================================================
 #
-#  Name it like this: 
+# USAGE:
+#   python3 Music_Organizer.py [--rename] [--artist ARTIST] [--album ALBUM]
 #
-#      Author_Name__Album_Name.txt 
+#   If no --artist/--album provided, the script looks for a text file:
+#        Artist__Album.txt   (double underscore)
 #
-#  Make sure there are two underscores separating the artist and album
+#   If iTunes cannot find the tracklist, you will be prompted to create a
+#   file named 'tracklist.txt' with one track title per line in the correct order.
 #
-#  Drop this script into the folder and run it.
+#   Example tracklist.txt:
+#        Main Title
+#        The Devil's Advocate
+#        Fire
+#        ...
 #
+#   Then the script will match your MP3 files to these titles and rename them
+#   with track numbers.
+#
+#   Use --rename to actually rename files; otherwise it's a dry-run preview.
+#
+#   Run with -h or --help for more details.
 #
 # ==============================================================================
 
-# Import the os module to interact with the operating system (renaming files)
+# -----------------------------------------------------------------------------
+# Import standard Python modules
+# -----------------------------------------------------------------------------
 import os
-# Import the re module to use regular expressions for text cleaning
 import re
-# Import the json module to parse the data returned by the iTunes API
 import json
-# Import urllib.request to fetch data from the internet
 import urllib.request
-# Import urllib.parse to safely encode search terms into URLs
 import urllib.parse
-# Import difflib to fuzzily match messy filenames with official song titles
 import difflib
-# Import glob to easily search for specific file types (like .txt)
 import glob
+import sys
+import argparse
 
-# Global toggle to prevent accidental renaming while testing
-# Change this to False ONLY when you are ready to rename the files
-DRY_RUN = False
+# ==============================================================================
+# CONFIGURATION – adjust these to suit your needs
+# ==============================================================================
+
+DRY_RUN = True                 # Set to False to actually rename
+FUZZY_CUTOFF = 0.4             # Lower = more lenient matching
+SEARCH_LIMIT = 50              # Max iTunes results
+
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
 
 def get_album_info_from_file():
-    """Finds a .txt file formatted as 'Artist__Album_Name.txt' to use as metadata."""
-    # Find all text files in the current directory
+    """
+    Finds a text file in the current directory with format:
+        Artist__Album.txt
+    (double underscore separates artist and album).
+    Returns (artist, album) or (None, None).
+    """
     txt_files = glob.glob("*.txt")
-    
-    # Loop through every text file found
     for file in txt_files:
-        # Check if the double underscore separator is in the filename
         if "__" in file:
-            # Strip away the '.txt' extension to isolate the name
-            name_part = os.path.splitext(file)[0]
-            
-            # Split the name into artist and album using the double underscore
-            artist_raw, album_raw = name_part.split("__", 1)
-            
-            # Replace single underscores with spaces for the artist name (for iTunes)
+            base = os.path.splitext(file)[0]
+            artist_raw, album_raw = base.split("__", 1)
             artist = artist_raw.replace("_", " ").strip()
-            # Replace single underscores with spaces for the album name (for iTunes)
             album = album_raw.replace("_", " ").strip()
-            
-            # Return the clean artist and album names to the main program
             return artist, album
-            
-    # If no file matching the format is found, return nothing
     return None, None
 
-def fetch_itunes_tracklist(artist, album):
-    """Fetches the official tracklist from the iTunes API."""
-    # Print a status message to let the user know what is happening
-    print(f"Searching iTunes for: {artist} - {album}...")
-    
-    # Combine the artist and album into a single search query string
-    query = f"{artist} {album}"
-    # Construct the iTunes API URL, making sure the query is URL-safe
-    url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=100"
-    
-    # Try block to handle any potential internet connection errors gracefully
+def load_local_tracklist(filename="tracklist.txt"):
+    """
+    Loads a tracklist from a text file.
+    Each line is a track title (no numbers).
+    Returns a dict: {title: padded_number} where number is sequential starting from 01.
+    Returns None if file not found.
+    """
     try:
-        # Open the URL and request the data
-        response = urllib.request.urlopen(url)
-        # Read the response and decode it from JSON into a Python dictionary
-        data = json.loads(response.read())
-        
-        # Create an empty dictionary to hold our final tracklist
-        tracklist = {}
-        
-        # Loop through every song result returned by iTunes
-        for result in data.get('results', []):
-            # Check if the artist name roughly matches what we are looking for
-            if artist.lower() in result.get('artistName', '').lower() and \
-               album.lower() in result.get('collectionName', '').lower(): # Check album match
-                
-                # Extract the official track name
-                track_name = result.get('trackName')
-                # Extract the official track number
-                track_num = result.get('trackNumber')
-                
-                # Save it to our dictionary, padding the number with a zero (e.g., '01')
-                tracklist[track_name] = str(track_num).zfill(2)
-                
-        # If the loop finishes and the dictionary is empty, the album wasn't found
-        if not tracklist:
-            # Warn the user
-            print("Warning: Could not find exact album matches on iTunes. Check spelling.")
-            # Return nothing
+        with open(filename, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+        if not lines:
+            print(f"Warning: '{filename}' exists but is empty.")
             return None
-            
-        # Tell the user how many tracks were successfully found
-        print(f"Success: Found {len(tracklist)} tracks online!\n")
-        # Return the populated tracklist dictionary
+        tracklist = {}
+        # Assign numbers sequentially starting from 01
+        for idx, title in enumerate(lines, start=1):
+            num = str(idx).zfill(2)
+            tracklist[title] = num
         return tracklist
-        
-    # Catch any connection errors (like being offline)
-    except Exception as e:
-        # Print the exact error message
-        print(f"Error: Failed to connect to iTunes: {e}")
-        # Return nothing
+    except FileNotFoundError:
         return None
 
-def isolate_song_title(filename, artist):
-    """Strips junk to isolate just the song title for better matching."""
-    # Separate the filename from its .mp3 extension
+def fetch_album_tracklist(artist, album):
+    """
+    Fetches official tracklist from iTunes.
+    Returns dict {title: padded_number} or None on failure.
+    """
+    print(f"Searching iTunes for: {artist} - {album}...")
+    # First try album search
+    query = f"{artist} {album}"
+    url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=album&limit={SEARCH_LIMIT}"
+    try:
+        response = urllib.request.urlopen(url)
+        data = json.loads(response.read())
+        # Find best matching album
+        best_match = None
+        best_score = 0.0
+        for result in data.get('results', []):
+            result_artist = result.get('artistName', '')
+            result_album = result.get('collectionName', '')
+            artist_words = set(artist.lower().split())
+            album_words = set(album.lower().split())
+            res_artist_words = set(result_artist.lower().split())
+            res_album_words = set(result_album.lower().split())
+            if artist_words and album_words:
+                artist_overlap = len(artist_words & res_artist_words) / max(len(artist_words), 1)
+                album_overlap = len(album_words & res_album_words) / max(len(album_words), 1)
+                score = (artist_overlap + album_overlap) / 2
+                if score > best_score:
+                    best_score = score
+                    best_match = result
+        if best_match and best_score >= 0.3:
+            collection_id = best_match.get('collectionId')
+            if collection_id:
+                lookup_url = f"https://itunes.apple.com/lookup?id={collection_id}&entity=song"
+                lookup_resp = urllib.request.urlopen(lookup_url)
+                lookup_data = json.loads(lookup_resp.read())
+                tracklist = {}
+                for res in lookup_data.get('results', []):
+                    if res.get('kind') == 'song':
+                        track_name = res.get('trackName')
+                        track_num = res.get('trackNumber')
+                        if track_name and track_num:
+                            tracklist[track_name] = str(track_num).zfill(2)
+                if tracklist:
+                    print(f"Success: Found {len(tracklist)} tracks from album.")
+                    return tracklist
+    except Exception as e:
+        print(f"Album search error: {e}")
+
+    # Fallback: song-level search
+    print("Album search failed. Trying song-level search...")
+    try:
+        url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=200"
+        response = urllib.request.urlopen(url)
+        data = json.loads(response.read())
+        tracklist = {}
+        for result in data.get('results', []):
+            result_artist = result.get('artistName', '')
+            result_album = result.get('collectionName', '')
+            if artist.lower() in result_artist.lower() and album.lower() in result_album.lower():
+                track_name = result.get('trackName')
+                track_num = result.get('trackNumber')
+                if track_name and track_num:
+                    tracklist[track_name] = str(track_num).zfill(2)
+        if tracklist:
+            print(f"Song search success: Found {len(tracklist)} tracks.")
+            return tracklist
+        else:
+            print("Song search failed.")
+            return None
+    except Exception as e:
+        print(f"Song search error: {e}")
+        return None
+
+def get_tracklist_from_user_interactive():
+    """
+    Asks the user to enter track numbers and titles manually.
+    Returns a dict {title: padded_number}.
+    """
+    print("\nPlease enter the tracklist for this album (one track per line).")
+    print("Format: number title (e.g., '01 Hello' or '01. Hello')")
+    print("Press Enter on an empty line when done.")
+    tracklist = {}
+    while True:
+        line = input("Track: ").strip()
+        if not line:
+            break
+        # Try to parse "01. Title" or "01 Title"
+        match = re.match(r'^(\d+)[\.\s]+(.+)$', line)
+        if match:
+            num = match.group(1).zfill(2)
+            title = match.group(2).strip()
+            tracklist[title] = num
+        else:
+            print("Invalid format. Use '01 Title' or '01. Title'.")
+    return tracklist
+
+def clean_song_title(filename, artist):
+    """
+    Cleans the filename to extract a pure song title for matching.
+    Removes artist name, YouTube IDs, common tags, and separators.
+    """
+    # Remove extension
     name, _ = os.path.splitext(filename)
     
-    # Remove YouTube IDs and anything else enclosed in brackets
-    name = re.sub(r'\s*\[.*?\]', '', name)
-    # Remove tags like '(Official Video)' enclosed in parentheses
-    name = re.sub(r'\s*\(.*?\)', '', name)
-    # Remove bizarre bash-escaped sequences downloaded by youtube-dl/yt-dlp
-    name = re.sub(r"'\$'.*?''", "", name)
-    # Remove the artist's name from the track title string
-    name = re.sub(f'(?i){artist}', '', name)
-    # Remove the standalone word 'by'
-    name = re.sub(r'(?i)\bby\b', '', name)
-    # Remove common video and audio metadata keywords
-    name = re.sub(r'(?i)official video|audio|remastered|lyric', '', name)
-    # Replace any remaining punctuation with a standard space
-    name = re.sub(r'[^\w\s]', ' ', name)
+    # Remove bracketed content [like this]
+    name = re.sub(r'\s*\[.*?\]\s*', ' ', name)
+    # Remove parenthetical content that are common tags: (Official Video), (Audio), etc.
+    name = re.sub(r'(?i)\s*\(official\s*(video|audio|music\s*video)\)', '', name)
+    name = re.sub(r'(?i)\s*\(remastered\)', '', name)
+    name = re.sub(r'(?i)\s*\(lyric\s*(video)?\)', '', name)
+    name = re.sub(r'(?i)\s*official\s*(video|audio)', '', name)
     
-    # Strip any trailing or leading whitespace and return the core title
-    return name.strip()
+    # Remove "by Artist" pattern
+    name = re.sub(rf'(?i)\s*by\s+{re.escape(artist)}', '', name)
+    
+    # Remove artist name from the end: common pattern " - Artist" or "｜ Artist"
+    escaped_artist = re.escape(artist)
+    # Look for artist at the end after a separator: (?: - |\s*[｜|]\s*|\s+by\s+)
+    pattern = re.compile(rf'\s*[-–—]\s*{escaped_artist}\s*$', re.IGNORECASE)
+    name = re.sub(pattern, '', name)
+    pattern = re.compile(rf'\s*[｜|]\s*{escaped_artist}\s*$', re.IGNORECASE)
+    name = re.sub(pattern, '', name)
+    # Also if artist is at the beginning: "Artist - Song" -> "Song"
+    pattern = re.compile(rf'^{escaped_artist}\s*[-–—]\s*', re.IGNORECASE)
+    name = re.sub(pattern, '', name)
+    pattern = re.compile(rf'^{escaped_artist}\s*[｜|]\s*', re.IGNORECASE)
+    name = re.sub(pattern, '', name)
+    
+    # Remove standalone word "by"
+    name = re.sub(r'(?i)\s*\bby\b\s*', ' ', name)
+    # Remove any leftover youtube-dl artifacts like "'$'..."
+    name = re.sub(r"'\$'.*?''", '', name)
+    
+    # Replace any remaining punctuation except apostrophe and hyphen with space
+    name = re.sub(r'[^\w\s\'-]', ' ', name)
+    # Normalize spaces
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
 
 def format_clean_name(text):
-    """Converts a string to Title_Case_With_Underscores."""
-    # Convert the string to Title Case
+    """Converts text to Title_Case_With_Underscores, removing special chars."""
+    text = re.sub(r'[/:]', ' ', text)
     text = text.title()
-    # Strip out any remaining non-alphanumeric characters except spaces
     text = re.sub(r'[^\w\s]', '', text)
-    # Replace all spaces (single or consecutive) with a single underscore
     text = re.sub(r'\s+', '_', text)
-    
-    # Return the newly formatted text
     return text
 
+def interactive_mapping(unmatched_files, tracklist, artist, album):
+    """
+    Manually map unmatched files to track numbers.
+    Returns dict {original_filename: new_filename}.
+    """
+    mappings = {}
+    sorted_tracks = sorted((num, title) for title, num in tracklist.items())
+    print("\nSome files couldn't be matched. Please map each one to a track.")
+    print("Available tracks:")
+    for num, title in sorted_tracks:
+        print(f"  {num}: {title}")
+    
+    for filename in unmatched_files:
+        cleaned = clean_song_title(filename, artist)
+        print(f"\nFile: {filename}")
+        print(f"Cleaned title: '{cleaned}'")
+        choice = input("Enter track number to map, 's' to skip, 'q' to quit: ").strip()
+        if choice.lower() == 'q':
+            sys.exit(0)
+        if choice.lower() == 's':
+            continue
+        # Find track by number
+        found = next(( (num, title) for num, title in sorted_tracks if num == choice.zfill(2) ), None)
+        if found:
+            prefix_artist = format_clean_name(artist)
+            prefix_album = format_clean_name(album)
+            clean_song = format_clean_name(found[1])
+            new_name = f"{prefix_artist}_{prefix_album}_{found[0]}_{clean_song}.mp3"
+            mappings[filename] = new_name
+        else:
+            print(f"Invalid number. Skipping {filename}.")
+    return mappings
+
+def obtain_tracklist(artist, album):
+    """
+    Obtains a tracklist from one of several sources:
+    1. Local file 'tracklist.txt' (user-provided)
+    2. iTunes API
+    3. User creates 'tracklist.txt' after being prompted
+    4. User enters tracklist interactively
+    Returns a dict {title: padded_number} or None if cancelled.
+    """
+    # First check for local tracklist
+    tracklist = load_local_tracklist()
+    if tracklist:
+        print(f"Found local 'tracklist.txt' with {len(tracklist)} tracks.")
+        return tracklist
+
+    # Try iTunes
+    tracklist = fetch_album_tracklist(artist, album)
+    if tracklist:
+        return tracklist
+
+    # iTunes failed – ask user to create a tracklist file
+    print("\nCould not retrieve tracklist from iTunes.")
+    print("Please create a file named 'tracklist.txt' in this folder.")
+    print("Add one track title per line in the correct order (no numbers).")
+    print("Example:")
+    print("  Main Title")
+    print("  The Devil's Advocate")
+    print("  Fire")
+    print("  ...")
+    print("\nPress Enter when you have created the file, or type 'skip' to continue without a tracklist.")
+    response = input().strip().lower()
+    if response == 'skip':
+        return None
+    # Try to load again
+    tracklist = load_local_tracklist()
+    if tracklist:
+        print(f"Loaded tracklist with {len(tracklist)} tracks.")
+        return tracklist
+    else:
+        print("Still no tracklist found.")
+        # Ask if user wants to enter manually
+        choice = input("Do you want to enter the tracklist manually now? (y/n): ").strip().lower()
+        if choice == 'y':
+            return get_tracklist_from_user_interactive()
+        else:
+            return None
+
 def main():
-    """Main execution function."""
-    # Attempt to read the artist and album from the dummy text file
-    artist, album = get_album_info_from_file()
-    
-    # Check if the file was found and read successfully
-    if not artist or not album:
-        # Print an error if the file is missing or malformed
-        print("Error: Could not find a text file for instructions.")
-        # Explain how the file should be formatted
-        print("Please create an empty text file named like: 'Artist_Name__Album_Name.txt'")
-        # Exit the program
-        return
+    # Create the argument parser – -h/--help is automatically included
+    parser = argparse.ArgumentParser(description="Organize MP3 files with iTunes tracklist.")
+    parser.add_argument('--rename', action='store_true', help="Actually rename files (otherwise dry-run).")
+    parser.add_argument('--artist', type=str, help="Override artist name.")
+    parser.add_argument('--album', type=str, help="Override album name.")
+    # Note: -h and --help are provided automatically by argparse
 
-    # Attempt to fetch the official tracklist from iTunes using the parsed info
-    tracklist = fetch_itunes_tracklist(artist, album)
-    # If the tracklist failed to download, stop the script
-    if not tracklist:
-        return
+    args = parser.parse_args()
 
-    # Create a list of all files in the current folder ending in .mp3
+    global DRY_RUN
+    if args.rename:
+        DRY_RUN = False
+
+    # Get artist/album
+    artist, album = None, None
+    if args.artist and args.album:
+        artist = args.artist
+        album = args.album
+        print(f"Using artist: {artist}, album: {album} (from command line)")
+    else:
+        artist, album = get_album_info_from_file()
+        if not artist or not album:
+            print("Error: No artist/album found.")
+            print("Please create 'Artist__Album.txt' or use --artist and --album.")
+            return
+
+    # Obtain tracklist
+    tracklist = obtain_tracklist(artist, album)
+    if tracklist is None:
+        print("Proceeding without a tracklist – all files will be numbered '00'.")
+        tracklist = {}
+
+    # List MP3 files
     files = [f for f in os.listdir('.') if f.lower().endswith('.mp3')]
-    
-    # Check if the list of mp3 files is completely empty
     if not files:
-        # Inform the user there is nothing to do
-        print("No .mp3 files found in the current directory.")
-        # Exit the program
+        print("No .mp3 files found.")
         return
 
-    # Print a header indicating the start of the process
-    print("--- RENAMING PREVIEW ---\n")
-    
-    # Format the artist name cleanly with underscores for the final filename
+    print(f"\nFound {len(files)} MP3 files.\n")
+
     prefix_artist = format_clean_name(artist)
-    # Format the album name cleanly with underscores for the final filename
     prefix_album = format_clean_name(album)
 
-    # Loop through every mp3 file in the directory
+    rename_map = {}
+    unmatched = []
+
     for filename in files:
-        # Extract just the core song title from the messy filename
-        isolated_title = isolate_song_title(filename, artist)
+        cleaned = clean_song_title(filename, artist)
+        print(f"Processing: {filename}")
+        print(f"  Cleaned: '{cleaned}'")
         
-        # Use fuzzy logic to find the closest match in the official iTunes tracklist
-        # cutoff=0.4 means the title only needs to be a 40% match to be accepted
-        best_match = difflib.get_close_matches(isolated_title, tracklist.keys(), n=1, cutoff=0.4)
-        
-        # Check if a match was successfully found
+        # Try exact match after normalization
+        def normalize(s):
+            s = re.sub(r'[^\w\s]', '', s).lower()
+            s = re.sub(r'\s+', ' ', s).strip()
+            return s
+        normalized_cleaned = normalize(cleaned)
+        best_match = None
+        for official_title in tracklist.keys():
+            if normalize(official_title) == normalized_cleaned:
+                best_match = official_title
+                break
         if best_match:
-            # Extract the actual string of the best matching official title
-            official_title = best_match[0]
-            # Retrieve the track number associated with that title from our dictionary
-            track_num = tracklist[official_title]
-            # Format the official title cleanly with underscores
-            clean_song_name = format_clean_name(official_title)
-            
-            # Construct the final, pristine filename string
-            new_name = f"{prefix_artist}_{prefix_album}_{track_num}_{clean_song_name}.mp3"
-            
-        # Execute this block if the script couldn't match the song to the album
+            print(f"  Exact match: '{best_match}'")
         else:
-            # Warn the user that a song failed to match
-            print(f"Warning: Could not match '{filename}' to the album tracklist.")
-            # Format the messy, unmatched title as best as possible
-            clean_unmatched = format_clean_name(isolated_title)
-            # Construct a fallback filename using track number '00'
-            new_name = f"{prefix_artist}_{prefix_album}_00_{clean_unmatched}.mp3"
-            
-        # Check if the newly constructed name is different from the original name
-        if filename != new_name:
-            # Print the original name
-            print(f"Old: {filename}")
-            # Print the new name
-            print(f"New: {new_name}\n")
-            
-            # Check if DRY_RUN is turned off
-            if not DRY_RUN:
-                # Actually execute the system rename command
-                os.rename(filename, new_name)
+            # Fuzzy match
+            matches = difflib.get_close_matches(cleaned, tracklist.keys(), n=1, cutoff=FUZZY_CUTOFF)
+            if matches:
+                best_match = matches[0]
+                print(f"  Fuzzy match: '{best_match}' (cutoff={FUZZY_CUTOFF})")
+            else:
+                print(f"  No match found.")
+        
+        if best_match:
+            track_num = tracklist[best_match]
+            clean_song = format_clean_name(best_match)
+            new_name = f"{prefix_artist}_{prefix_album}_{track_num}_{clean_song}.mp3"
+            rename_map[filename] = new_name
+        else:
+            unmatched.append(filename)
 
-    # Check if the script was just running a simulation
+    # Handle unmatched
+    if unmatched:
+        print(f"\n{len(unmatched)} files unmatched.")
+        if tracklist and len(tracklist) > 0:
+            choice = input("Do you want to manually map them? (y/n): ").strip().lower()
+            if choice == 'y':
+                manual = interactive_mapping(unmatched, tracklist, artist, album)
+                rename_map.update(manual)
+                # Remove those that were manually mapped from unmatched list
+                unmatched = [f for f in unmatched if f not in manual]
+        # For any remaining unmatched, use "00_"
+        for filename in unmatched:
+            clean_title = clean_song_title(filename, artist)
+            clean_song = format_clean_name(clean_title)
+            new_name = f"{prefix_artist}_{prefix_album}_00_{clean_song}.mp3"
+            rename_map[filename] = new_name
+            print(f"  Using '00_' for: {filename}")
+
+    # Summary
+    print("\n--- RENAMING SUMMARY ---")
+    for orig, new in rename_map.items():
+        if orig != new:
+            print(f"  {orig}  ->  {new}")
+
     if DRY_RUN:
-        # Print the end of the simulation block
-        print("---\nThis was a DRY RUN. No files were changed.")
-        # Remind the user how to activate the actual renaming
-        print("Change `DRY_RUN = False` in the script when you are ready.")
-    # Execute this block if the script actually renamed the files
+        print("\n--- DRY RUN: No files were changed. ---")
+        print("Run with --rename to actually rename.")
     else:
-        # Print a success message
-        print("---\nFiles successfully renamed!")
+        for orig, new in rename_map.items():
+            if orig != new and os.path.exists(orig):
+                try:
+                    os.rename(orig, new)
+                    print(f"Renamed: {orig} -> {new}")
+                except Exception as e:
+                    print(f"Error renaming {orig}: {e}")
+        print("\n--- Renaming complete. ---")
 
-# Python idiom ensuring the main function only runs if the script is executed directly
 if __name__ == '__main__':
-    # Call the main function
     main()
