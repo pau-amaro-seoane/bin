@@ -18,6 +18,18 @@ sudo apt autoclean
 sudo apt clean
 sudo apt -y autoremove
 
+# Updating Firmware
+# ThinkPads are well supported by the Linux Vendor Firmware Service (LVFS)
+# through fwupd, so you can update your BIOS and firmware from within Linux the
+# same way Lenovo's Vantage app does on Windows. To check for and install 
+# firmware updates:
+
+# Refresh the list of available firmware
+fwupdmgr refresh
+# Show available updates and apply them
+fwupdmgr get-updates
+sudo fwupdmgr update
+
 # old kernels
 # sudo apt install byobu
 sudo purge-old-kernels
