@@ -18,6 +18,10 @@ sudo apt autoclean
 sudo apt clean
 sudo apt -y autoremove
 
+# old kernels
+# sudo apt install byobu
+sudo purge-old-kernels
+
 # Updating Firmware
 # ThinkPads are well supported by the Linux Vendor Firmware Service (LVFS)
 # through fwupd, so you can update your BIOS and firmware from within Linux the
@@ -29,10 +33,6 @@ fwupdmgr refresh
 # Show available updates and apply them
 fwupdmgr get-updates
 sudo fwupdmgr update
-
-# old kernels
-# sudo apt install byobu
-sudo purge-old-kernels
 
 # snap
 killall snap-store
@@ -61,3 +61,5 @@ fi
 
 # check for new ubuntu releases
 sudo do-release-upgrade --check-dist-upgrade-only
+
+
